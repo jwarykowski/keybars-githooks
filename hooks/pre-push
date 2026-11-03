@@ -1,0 +1,31 @@
+#!/bin/sh
+# keybars-githooks pre-push: runs `git config keybars.test` through
+# keybars-pro run, so the keyboard shows build.running, then build.passed or
+# build.failed. A failure stops the push unless keybars.block is false.
+set -u
+here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=hooks/lib.sh
+. "$here/lib.sh"
+
+# the refs being pushed come on stdin, for the repository's own hook too
+refs=$(cat)
+if hook=$(own pre-push); then
+  if [ -n "$refs" ]; then printf '%s\n' "$refs"; fi | "$hook" "$@" || exit $?
+fi
+
+test=$(git config keybars.test) || exit 0
+[ -n "$test" ] || exit 0
+name=$(git config keybars.name) || name=build
+if command -v "$kp" >/dev/null 2>&1; then
+  "$kp" run -q -name "$name" -- sh -c "$test" </dev/null
+else
+  sh -c "$test" </dev/null
+fi
+code=$?
+[ "$code" -eq 0 ] && exit 0
+if [ "$(git config --bool keybars.block)" = false ]; then
+  echo "keybars-githooks: $test failed; pushing anyway (keybars.block is false)" >&2
+  exit 0
+fi
+echo "keybars-githooks: $test failed, so the push stopped; git push --no-verify skips it" >&2
+exit "$code"

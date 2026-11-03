@@ -1,0 +1,105 @@
+#!/bin/sh
+# keybars-githooks: installs the hooks in this repository, or for every
+# repository with --global, and adds rules for the events they send.
+set -eu
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+hooks="pre-push post-commit post-merge"
+kp=${KEYBARS_PRO:-keybars-pro}
+
+usage() {
+  cat <<EOF
+usage: keybars-githooks install [--global]    the hooks in this repository, or every one
+       keybars-githooks uninstall [--global]  take them out, putting back what was there
+       keybars-githooks rules                 add rules for git.committed and git.merged
+
+Tests before a push: git config keybars.test "make test"
+EOF
+}
+
+say() { echo "keybars-githooks: $*"; }
+die() {
+  echo "keybars-githooks: $*" >&2
+  exit 1
+}
+
+case $root in *"'"*) die "can't install from a path with a ' in it: $root" ;; esac
+
+repo_dir() {
+  dir=$(git rev-parse --git-common-dir 2>/dev/null) || die "not in a git repository"
+  dir="$(cd "$dir" && pwd)/hooks"
+  mkdir -p "$dir"
+}
+
+install_repo() {
+  repo_dir
+  [ -z "$(git config --local core.hooksPath)" ] ||
+    die "this repository runs its hooks from core.hooksPath ($(git config --local core.hooksPath)); add keybars-githooks there by hand"
+  for h in $hooks; do
+    f="$dir/$h"
+    if grep -q "keybars-githooks wrapper" "$f" 2>/dev/null; then
+      :
+    elif [ -e "$f" ]; then
+      [ ! -e "$f.local" ] || die "$f and $f.local are both there; move one aside first"
+      mv "$f" "$f.local"
+      say "kept your $h as $h.local; it runs first"
+    fi
+    printf "#!/bin/sh\n# keybars-githooks wrapper: runs %s\nexec '%s' \"\$@\"\n" "$h" "$root/hooks/$h" >"$f"
+    chmod +x "$f"
+  done
+  say "installed in $(git rev-parse --show-toplevel)"
+}
+
+uninstall_repo() {
+  repo_dir
+  for h in $hooks; do
+    f="$dir/$h"
+    grep -q "keybars-githooks wrapper" "$f" 2>/dev/null || continue
+    rm -f "$f"
+    if [ -e "$f.local" ]; then mv "$f.local" "$f"; fi
+  done
+  say "uninstalled from $(git rev-parse --show-toplevel)"
+}
+
+install_global() {
+  now=$(git config --global core.hooksPath || true)
+  [ -z "$now" ] || [ "$now" = "$root/hooks" ] ||
+    die "core.hooksPath is already $now; add keybars-githooks there by hand"
+  git config --global core.hooksPath "$root/hooks"
+  say "installed for every repository (core.hooksPath); each one's own hooks still run first"
+}
+
+uninstall_global() {
+  [ "$(git config --global core.hooksPath || true)" = "$root/hooks" ] || die "core.hooksPath isn't keybars-githooks'"
+  git config --global --unset core.hooksPath
+  say "uninstalled for every repository"
+}
+
+rules() {
+  command -v "$kp" >/dev/null 2>&1 ||
+    die "needs keybars Pro's keybars-pro command: App settings, Install the command-line tool"
+  have=$("$kp" rules list) || die "is keybars Pro running?"
+  add() {
+    if printf '%s\n' "$have" | grep -qF -- "$1"; then
+      say "\"$1\" is already there"
+    else
+      "$kp" rules add "$@"
+      say "added \"$1\""
+    fi
+  }
+  add "Committed" git.committed -keys top-row -colour green -effect wave
+  add "Pulled" git.merged -keys all -colour cyan -effect wave
+  say "the CI pack plays the tests' build events: keybars-pro market install ci-pack"
+}
+
+case "${1:-} ${2:-}" in
+"install ") install_repo ;;
+"install --global") install_global ;;
+"uninstall ") uninstall_repo ;;
+"uninstall --global") uninstall_global ;;
+"rules ") rules ;;
+*)
+  usage >&2
+  exit 2
+  ;;
+esac

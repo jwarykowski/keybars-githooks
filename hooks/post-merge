@@ -1,0 +1,10 @@
+#!/bin/sh
+# keybars-githooks post-merge: sends git.merged after a pull or merge.
+set -u
+here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=hooks/lib.sh
+. "$here/lib.sh"
+
+if hook=$(own post-merge); then "$hook" "$@"; fi
+send git.merged
+exit 0

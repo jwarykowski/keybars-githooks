@@ -1,0 +1,10 @@
+#!/bin/sh
+# keybars-githooks post-commit: sends git.committed.
+set -u
+here=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=hooks/lib.sh
+. "$here/lib.sh"
+
+if hook=$(own post-commit); then "$hook" "$@"; fi
+rebasing || send git.committed
+exit 0
